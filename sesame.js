@@ -21,6 +21,7 @@ var v11 = new blynk.VirtualPin(11);
 var ledLock = new Gpio(18, 'out');
 var garageMotor = new Gpio(17, 'out');
 var locked = true;
+var garageStatus = 'closed';
 var garageInMotion = false;
 var blinkProgress = 0;
 const blinkCount = 58;
@@ -106,22 +107,33 @@ function pressGarage(timeout) {
 
 function blink(count) {
 
-    blinkProgress = Math.round(100-(100*(count/blinkCount)));
-    log.info("Door progress:" + blinkProgress);
+    if (garageStatus == "closing" ) {
+        blinkProgress = Math.round(100*(count/blinkCount));
+    } else if (garageStatus == "opening") {
+        blinkProgress = Math.round(100-(100*(count/blinkCount)));
+    } 
+    // log.info("Door progress:" + blinkProgress);
     blynk.virtualWrite(12, blinkProgress);
 
     if (count <= 0) {
         ledLock.write(0);
         garageInMotion = false;
-        log.info("Blinker stopped. This should mark garage top/bottom in mouse detection.");
-        if(mouse.y > 2000) {
-            mouse.yCeiling = mouse.y;
-            log.info("Garage has reached a ceiling of: " + mouse.ceiling);
+        log.info("Blinker stopped.");
+        if(garageStatus == "opening") {
+            mouse.ceiling = mouse.y;
+            log.info("Garage is open with a ceiling of: " + mouse.ceiling);
+            blynk.virtualWrite(20, 255);
+            blynk.virtualWrite(21, 0);
+            garageStatus = "opened";
         }
-        else {
+        else if(garageStatus == "closing"){
             mouse.y = 0;
             log.info("Garage has closed.");
+            blynk.virtualWrite(20, 0);
+            blynk.virtualWrite(21, 255);
+            garageStatus = "closed";
         }
+        blynk.virtualWrite(13, garageStatus);
 
         return;// garageMotor.unexport();
     }
@@ -145,9 +157,25 @@ function blink(count) {
 
 mouse.on('move', function(data) {
     if (data.code == 1) {
+        if ((data.value + mouse.y) < mouse.y) {
+            if(garageStatus != "closing") {
+                garageStatus = "closing";
+                blynk.virtualWrite(20, 0);
+                blynk.virtualWrite(21, 0);
+                blynk.virtualWrite(13, garageStatus);
+            }
+        } else {
+            if(garageStatus != "opening") {
+                garageStatus = "opening";
+                blynk.virtualWrite(20, 0);
+                blynk.virtualWrite(21, 0);
+                blynk.virtualWrite(13, garageStatus);
+            }
+        }
         mouse.y += data.value;
         log.info("mouse.y = " + mouse.y);
     }
+    // log.info("y=" + mouse.y);
     // console.log("Mouse X: " + mouse.x +"; Mouse Y: " + mouse.y);
     // cmd.run('echo "X:' + mouse.x + ' :: Y: ' + mouse.y + '" >> sesame.log');
 });
