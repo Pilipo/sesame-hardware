@@ -1,15 +1,17 @@
+require('dotenv').config();
 var Blynk = require('blynk-library');
 var Gpio = require('onoff').Gpio;
 var cmd = require('node-cmd');
 var ie = require('input-event');
 var input = new ie('/dev/input/event0');
 var mouse = new ie.Mouse(input);
+const log = require('simple-node-logger').createSimpleFileLogger('sesame.log');
 mouse.x = mouse.y = 0;
 
-var AUTH = '9bc8eb8d80c049ff89927c587ddd239f';
+var AUTH = process.env.AUTH;
 
 var blynk = new Blynk.Blynk(AUTH, options = {
-    connector : new Blynk.TcpClient( options = { addr:"192.168.1.120", port:8442 } )
+    connector : new Blynk.TcpClient( options = { addr:process.env.IP, port:8442 } )
 });
 
 var v0 = new blynk.VirtualPin(0);
@@ -20,8 +22,10 @@ var ledLock = new Gpio(18, 'out');
 var garageMotor = new Gpio(17, 'out');
 var locked = true;
 var garageInMotion = false;
+var blinkProgress = 0;
+const blinkCount = 58;
 
-// THIS OPENS AND CLOSE THE GARAGE!
+// THIS OPENS AND CLOSE THE GARAGE. BE CAREFUL!
 
 v1.on('write', function(param) {
     if(locked == false) {
@@ -31,12 +35,12 @@ v1.on('write', function(param) {
             blynk.virtualWrite(0, 1);
             pressGarage(500);
             garageInMotion = true;
-            blink(75);
+            blink(blinkCount);
         }
     }
 });
 
-// THIS IS THE LOCK FOR THE GARAGE MOTOR
+// THIS IS THE LOCK FOR THE GARAGE BUTTON
 
 v0.on('write', function(param) {
     if (garageInMotion == true) {
@@ -102,10 +106,23 @@ function pressGarage(timeout) {
 
 function blink(count) {
 
+    blinkProgress = Math.round(100-(100*(count/blinkCount)));
+    log.info("Door progress:" + blinkProgress);
+    blynk.virtualWrite(12, blinkProgress);
+
     if (count <= 0) {
         ledLock.write(0);
         garageInMotion = false;
-        console.log("Blink complete!");
+        log.info("Blinker stopped. This should mark garage top/bottom in mouse detection.");
+        if(mouse.y > 2000) {
+            mouse.yCeiling = mouse.y;
+            log.info("Garage has reached a ceiling of: " + mouse.ceiling);
+        }
+        else {
+            mouse.y = 0;
+            log.info("Garage has closed.");
+        }
+
         return;// garageMotor.unexport();
     }
 
@@ -127,11 +144,10 @@ function blink(count) {
 }
 
 mouse.on('move', function(data) {
-    if (data.code == 0) {
-        mouse.x += data.value;
-    }
     if (data.code == 1) {
         mouse.y += data.value;
+        log.info("mouse.y = " + mouse.y);
     }
-    console.log("Mouse X: " + mouse.x +"; Mouse Y: " + mouse.y);
+    // console.log("Mouse X: " + mouse.x +"; Mouse Y: " + mouse.y);
+    // cmd.run('echo "X:' + mouse.x + ' :: Y: ' + mouse.y + '" >> sesame.log');
 });
