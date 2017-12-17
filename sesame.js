@@ -1,15 +1,14 @@
-require('dotenv').config();
+require('dotenv').config({path: '/home/pi/Code/sesame-hw/.env'});
 var Blynk = require('blynk-library');
 var Gpio = require('onoff').Gpio;
 var cmd = require('node-cmd');
 var ie = require('input-event');
 var input = new ie('/dev/input/event0');
 var mouse = new ie.Mouse(input);
-const log = require('simple-node-logger').createSimpleFileLogger('sesame.log');
+const log = require('simple-node-logger').createSimpleFileLogger('/home/pi/Code/sesame-hw/sesame.log');
 mouse.x = mouse.y = 0;
 
 var AUTH = process.env.AUTH;
-
 var blynk = new Blynk.Blynk(AUTH, options = {
     connector : new Blynk.TcpClient( options = { addr:process.env.IP, port:8442 } )
 });
@@ -25,18 +24,32 @@ var garageStatus = 'closed';
 var garageInMotion = false;
 var blinkProgress = 0;
 const blinkCount = 58;
+var date = new Date();
+var lastGarageMovement = 0;
+
+(function checkDoor(prevMovement){
+    // log.info("checkdoor() called");
+
+    if (lastGarageMovement == prevMovement) {
+        blynk.virtualWrite(12, blinkProgress);
+
+        if (garageStatus == "closing" || garageStatus == "opening") {
+            log.error("Door stopped moving, but status is still " + garageStatus);
+        }
+    }
+
+    setTimeout(function(){
+        checkDoor(lastGarageMovement);
+    }, 500);
+})();
 
 // THIS OPENS AND CLOSE THE GARAGE. BE CAREFUL!
 
 v1.on('write', function(param) {
     if(locked == false) {
         if (param[0] == 1) {
-            locked = true;
-            ledLock.writeSync(0);
-            blynk.virtualWrite(0, 1);
+            activateGarageIndicators();
             pressGarage(500);
-            garageInMotion = true;
-            blink(blinkCount);
         }
     }
 });
@@ -67,20 +80,20 @@ v10.on('write', function(param){
     var index = param[0];
     switch (index) {
         case "1":
-            console.log("Exposure: Auto");
+            log.info("Exposure: Auto");
             cmd.run('echo "em auto" > /var/www/html/camera/FIFO');
             break;
         case "2":
-            console.log("Exposure: Night");
+            log.info("Exposure: Night");
             cmd.run('echo "em night" > /var/www/html/camera/FIFO');
             break;
         case "3":
-            console.log("Exposure: Spotlight");
+            log.info("Exposure: Spotlight");
             cmd.run('echo "em spotlight" > /var/www/html/camera/FIFO');
             break;
         default:
-            console.log("What happened?");
-            console.log(index);
+            log.info("What happened?");
+            log.info(index);
             
             break;
     }
@@ -103,6 +116,14 @@ function pressGarage(timeout) {
     setTimeout(function(){
         garageMotor.writeSync(0);
     }, timeout);
+}
+
+function activateGarageIndicators() {
+    locked = true;
+    ledLock.writeSync(0);
+    blynk.virtualWrite(0, 1);
+    garageInMotion = true;
+    blink(blinkCount);
 }
 
 function blink(count) {
@@ -157,6 +178,10 @@ function blink(count) {
 
 mouse.on('move', function(data) {
     if (data.code == 1) {
+        if (garageInMotion == false) {
+            blynk.notify("Somebody activated the garage!");
+            activateGarageIndicators();
+        }
         if ((data.value + mouse.y) < mouse.y) {
             if(garageStatus != "closing") {
                 garageStatus = "closing";
@@ -174,8 +199,8 @@ mouse.on('move', function(data) {
         }
         mouse.y += data.value;
         log.info("mouse.y = " + mouse.y);
+        lastGarageMovement = date.getMilliseconds();
     }
-    // log.info("y=" + mouse.y);
-    // console.log("Mouse X: " + mouse.x +"; Mouse Y: " + mouse.y);
+    // log.info("mouse y=" + mouse.y);
     // cmd.run('echo "X:' + mouse.x + ' :: Y: ' + mouse.y + '" >> sesame.log');
 });
